@@ -2,7 +2,6 @@ import requests
 from bs4 import BeautifulSoup
 import time
 from datetime import datetime
-from collections import defaultdict
 
 # =========================
 # TELEGRAM CONFIG
@@ -11,7 +10,7 @@ BOT_TOKEN = "8860401989:AAHP5PqX7q56093L0DteC3HAQGyirAbcefc"
 CHAT_ID = "1061791629"
 
 # =========================
-# OLT LIST (FULL KAMU)
+# OLT LIST FULL KAMU
 # =========================
 OLTS = [
     "JKO-OLT-14","JKO-OLT-22","JKO-OLT-09","JKO-OLT-07","POR-OLT-04",
@@ -49,15 +48,12 @@ OLTS = [
 BASE_URL = "http://202.77.116.37:28945/ftthbu5/ems_micro.php?olt={}"
 
 # =========================
-# STATE MEMORY (RAM ONLY)
+# MEMORY (NO FILE → RAILWAY SAFE)
 # =========================
 sent_alarm = set()
-event_buffer = defaultdict(list)
-last_sent = {}
-last_heartbeat = 0
 
 # =========================
-# TELEGRAM SEND (SAFE)
+# TELEGRAM SAFE SEND
 # =========================
 def send_telegram(text):
     try:
@@ -70,68 +66,13 @@ def send_telegram(text):
         pass
 
 # =========================
-# HEARTBEAT (1 JAM SEKALI)
-# =========================
-def heartbeat():
-    global last_heartbeat
-    now = time.time()
-
-    if now - last_heartbeat > 3600:
-        send_telegram("🟢 NOC BOT ACTIVE (HEARTBEAT OK)")
-        last_heartbeat = now
-
-# =========================
-# FLUSH INCIDENT (CORE NOC LOGIC)
-# =========================
-def flush_events():
-    now = time.time()
-
-    for olt, events in list(event_buffer.items()):
-
-        if not events:
-            continue
-
-        # suppression 5 menit per OLT
-        if olt in last_sent:
-            if now - last_sent[olt] < 300:
-                continue
-
-        critical = [e for e in events if e["severity"] == "Critical"]
-        major = [e for e in events if e["severity"] == "Major"]
-
-        msg = f"🚨 NOC INCIDENT REPORT\n\nOLT: {olt}\n"
-
-        if critical:
-            msg += f"🔥 Critical: {len(critical)}\n"
-        if major:
-            msg += f"⚠️ Major: {len(major)}\n"
-
-        sample = events[0]
-
-        msg += f"""
-SAMPLE:
-Severity: {sample['severity']}
-IP: {sample['ip']}
-Message: {sample['message']}
-Start: {sample['start']}
-"""
-
-        send_telegram(msg)
-
-        last_sent[olt] = now
-        event_buffer[olt] = []
-
-# =========================
-# MAIN LOOP
+# MAIN LOOP (REALTIME)
 # =========================
 while True:
     try:
         print("\nSCAN:", datetime.now())
 
-        heartbeat()
-
         for olt_name in OLTS:
-
             try:
                 url = BASE_URL.format(olt_name)
 
@@ -154,6 +95,10 @@ while True:
                     severity = cols[6]
                     ack = cols[7]
 
+                    # =========================
+                    # FILTER REALTIME ONLY
+                    # =========================
+
                     if alarm_id in sent_alarm:
                         continue
 
@@ -163,21 +108,29 @@ while True:
                     if severity not in ["Major", "Critical"]:
                         continue
 
-                    key = olt
-                    event_buffer[key].append({
-                        "alarm_id": alarm_id,
-                        "severity": severity,
-                        "message": message,
-                        "ip": ip,
-                        "start": start
-                    })
-
+                    # mark langsung biar tidak spam
                     sent_alarm.add(alarm_id)
+
+                    msg = f"""🚨 REALTIME OLT ALERT
+
+OLT: {olt}
+Severity: {severity}
+IP: {ip}
+
+Message:
+{message}
+
+Start:
+{start}
+
+#REALTIME_NOC"""
+
+                    send_telegram(msg)
+
+                    print("ALERT SENT:", alarm_id)
 
             except Exception as e:
                 print("OLT ERROR:", olt_name, e)
-
-        flush_events()
 
     except Exception as e:
         print("LOOP ERROR:", e)
