@@ -1,16 +1,17 @@
 import requests
 from bs4 import BeautifulSoup
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
+from collections import defaultdict
 
 # =========================
-# TELEGRAM
+# TELEGRAM CONFIG
 # =========================
 BOT_TOKEN = "8860401989:AAHP5PqX7q56093L0DteC3HAQGyirAbcefc"
 CHAT_ID = "1061791629"
 
 # =========================
-# OLT LIST FULL (PUNYA KAMU)
+# OLT LIST (FULL KAMU)
 # =========================
 OLTS = [
     "JKO-OLT-14","JKO-OLT-22","JKO-OLT-09","JKO-OLT-07","POR-OLT-04",
@@ -47,8 +48,17 @@ OLTS = [
 
 BASE_URL = "http://202.77.116.37:28945/ftthbu5/ems_micro.php?olt={}"
 
-sent = set()
+# =========================
+# STATE MEMORY (RAM ONLY)
+# =========================
+sent_alarm = set()
+event_buffer = defaultdict(list)
+last_sent = {}
+last_heartbeat = 0
 
+# =========================
+# TELEGRAM SEND (SAFE)
+# =========================
 def send_telegram(text):
     try:
         requests.get(
@@ -59,11 +69,69 @@ def send_telegram(text):
     except:
         pass
 
+# =========================
+# HEARTBEAT (1 JAM SEKALI)
+# =========================
+def heartbeat():
+    global last_heartbeat
+    now = time.time()
+
+    if now - last_heartbeat > 3600:
+        send_telegram("🟢 NOC BOT ACTIVE (HEARTBEAT OK)")
+        last_heartbeat = now
+
+# =========================
+# FLUSH INCIDENT (CORE NOC LOGIC)
+# =========================
+def flush_events():
+    now = time.time()
+
+    for olt, events in list(event_buffer.items()):
+
+        if not events:
+            continue
+
+        # suppression 5 menit per OLT
+        if olt in last_sent:
+            if now - last_sent[olt] < 300:
+                continue
+
+        critical = [e for e in events if e["severity"] == "Critical"]
+        major = [e for e in events if e["severity"] == "Major"]
+
+        msg = f"🚨 NOC INCIDENT REPORT\n\nOLT: {olt}\n"
+
+        if critical:
+            msg += f"🔥 Critical: {len(critical)}\n"
+        if major:
+            msg += f"⚠️ Major: {len(major)}\n"
+
+        sample = events[0]
+
+        msg += f"""
+SAMPLE:
+Severity: {sample['severity']}
+IP: {sample['ip']}
+Message: {sample['message']}
+Start: {sample['start']}
+"""
+
+        send_telegram(msg)
+
+        last_sent[olt] = now
+        event_buffer[olt] = []
+
+# =========================
+# MAIN LOOP
+# =========================
 while True:
     try:
         print("\nSCAN:", datetime.now())
 
+        heartbeat()
+
         for olt_name in OLTS:
+
             try:
                 url = BASE_URL.format(olt_name)
 
@@ -86,7 +154,7 @@ while True:
                     severity = cols[6]
                     ack = cols[7]
 
-                    if alarm_id in sent:
+                    if alarm_id in sent_alarm:
                         continue
 
                     if ack != "Unack":
@@ -95,34 +163,21 @@ while True:
                     if severity not in ["Major", "Critical"]:
                         continue
 
-                    try:
-                        alarm_time = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
-                    except:
-                        continue
+                    key = olt
+                    event_buffer[key].append({
+                        "alarm_id": alarm_id,
+                        "severity": severity,
+                        "message": message,
+                        "ip": ip,
+                        "start": start
+                    })
 
-                    if datetime.now() - alarm_time > timedelta(minutes=15):
-                        sent.add(alarm_id)
-                        continue
-
-                    msg = f"""🚨 ALARM OLT
-
-OLT: {olt}
-Severity: {severity}
-IP: {ip}
-
-Message:
-{message}
-
-Start:
-{start}"""
-
-                    send_telegram(msg)
-                    sent.add(alarm_id)
-
-                    print("ALERT:", alarm_id)
+                    sent_alarm.add(alarm_id)
 
             except Exception as e:
                 print("OLT ERROR:", olt_name, e)
+
+        flush_events()
 
     except Exception as e:
         print("LOOP ERROR:", e)
