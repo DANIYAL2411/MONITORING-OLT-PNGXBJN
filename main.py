@@ -4,16 +4,16 @@ import time
 from datetime import datetime, timedelta
 
 # =========================
-# TELEGRAM
+# TELEGRAM CONFIG
 # =========================
 BOT_TOKEN = "8860401989:AAHP5PqX7q56093L0DteC3HAQGyirAbcefc"
 CHAT_ID = "1061791629"
 
 # =========================
-# OLT LIST
+# OLT LIST FULL
 # =========================
-OLTS = [ 
-    # ("JKO-OLT-14","JKO-OLT-22","JKO-OLT-09","JKO-OLT-07","POR-OLT-04",
+OLTS = [
+    "JKO-OLT-14","JKO-OLT-22","JKO-OLT-09","JKO-OLT-07","POR-OLT-04",
     "POR-OLT-01","PCO-OLT-12","PCO-OLT-01","PKE-OLT-12","PKE-OLT-07",
     "SEM-OLT-11","SEM-OLT-07","PCO-OLT-03","PCO-OLT-06","JKO-OLT-11",
     "JKO-OLT-13","JKO-OLT-06","JKO-OLT-18","JKO-OLT-08","JKO-OLT-19",
@@ -48,13 +48,13 @@ OLTS = [
 BASE_URL = "http://202.77.116.37:28945/ftthbu5/ems_micro.php?olt={}"
 
 # =========================
-# STATE
+# STATE MEMORY
 # =========================
 sent_alarm = set()
 active_incident = set()
 
 # =========================
-# TELEGRAM SAFE
+# TELEGRAM
 # =========================
 def send_telegram(text):
     try:
@@ -109,21 +109,19 @@ while True:
                         continue
 
                     # =========================
-                    # FILTER REALTIME ONLY
+                    # REALTIME FILTER
                     # =========================
 
-                    # ❌ hanya hari ini
                     if alarm_time.date() != datetime.now().date():
                         continue
 
-                    # ❌ hanya 5 menit terakhir
                     if datetime.now() - alarm_time > timedelta(minutes=5):
                         continue
 
                     current_active.add(alarm_id)
 
                     # =========================
-                    # START INCIDENT
+                    # INCIDENT OPEN
                     # =========================
                     if alarm_id not in sent_alarm:
                         sent_alarm.add(alarm_id)
@@ -144,7 +142,7 @@ while True:
                 print("OLT ERROR:", olt_name, e)
 
         # =========================
-        # END INCIDENT (CLOSE)
+        # INCIDENT CLOSE
         # =========================
         for old in list(active_incident):
             if old not in current_active:
