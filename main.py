@@ -57,13 +57,16 @@ sent_alarm = set()
 # =========================
 def send_telegram(text):
     try:
-        requests.get(
+        r = requests.get(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             params={"chat_id": CHAT_ID, "text": text},
             timeout=10
         )
-    except:
-        pass
+
+        print("TELEGRAM RESPONSE:", r.status_code, r.text)
+
+    except Exception as e:
+        print("TELEGRAM ERROR:", e)
 
 # =========================
 # MAIN LOOP (REALTIME NOC)
