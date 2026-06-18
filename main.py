@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # =========================
 # TELEGRAM CONFIG
@@ -48,12 +48,12 @@ OLTS = [
 BASE_URL = "http://202.77.116.37:28945/ftthbu5/ems_micro.php?olt={}"
 
 # =========================
-# MEMORY (NO FILE → RAILWAY SAFE)
+# MEMORY (NO DB - RAILWAY SAFE)
 # =========================
 sent_alarm = set()
 
 # =========================
-# TELEGRAM SAFE SEND
+# TELEGRAM SENDER
 # =========================
 def send_telegram(text):
     try:
@@ -66,7 +66,7 @@ def send_telegram(text):
         pass
 
 # =========================
-# MAIN LOOP (REALTIME)
+# MAIN LOOP (REALTIME NOC)
 # =========================
 while True:
     try:
@@ -96,7 +96,7 @@ while True:
                     ack = cols[7]
 
                     # =========================
-                    # FILTER REALTIME ONLY
+                    # FILTER REALTIME NOC
                     # =========================
 
                     if alarm_id in sent_alarm:
@@ -108,10 +108,23 @@ while True:
                     if severity not in ["Major", "Critical"]:
                         continue
 
-                    # mark langsung biar tidak spam
+                    try:
+                        alarm_time = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+                    except:
+                        continue
+
+                    # ❌ buang data bukan hari ini
+                    if alarm_time.date() != datetime.now().date():
+                        continue
+
+                    # ❌ hanya 5 menit terakhir
+                    if datetime.now() - alarm_time > timedelta(minutes=5):
+                        continue
+
+                    # mark anti spam
                     sent_alarm.add(alarm_id)
 
-                    msg = f"""🚨 REALTIME OLT ALERT
+                    msg = f"""🚨 REALTIME NOC ALERT
 
 OLT: {olt}
 Severity: {severity}
