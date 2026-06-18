@@ -1,21 +1,17 @@
 import requests
 from bs4 import BeautifulSoup
-import json
-import os
 import time
 from datetime import datetime, timedelta
 
 # =========================
 # TELEGRAM
 # =========================
-
 BOT_TOKEN = "8860401989:AAHP5PqX7q56093L0DteC3HAQGyirAbcefc"
 CHAT_ID = "1061791629"
 
 # =========================
-# OLT PONOROGO + BOJONEGORO
+# OLT LIST FULL (PUNYA KAMU)
 # =========================
-
 OLTS = [
     "JKO-OLT-14","JKO-OLT-22","JKO-OLT-09","JKO-OLT-07","POR-OLT-04",
     "POR-OLT-01","PCO-OLT-12","PCO-OLT-01","PKE-OLT-12","PKE-OLT-07",
@@ -32,7 +28,6 @@ OLTS = [
     "PKE-OLT-15","BLM-OLT-03","BLM-OLT-05","BLM-OLT-02","BLM-OLT-04",
     "POR-OLT-06","BLM-OLT-11","PKE-OLT-13","POR-OLT-10","POR-OLT-02",
     "POR-OLT-05","POR-OLT-08","POR-OLT-09",
-
     "KPO-OLT-15","KPO-OLT-04","WDI-OLT-08","LWT-OLT-14","KPO-OLT-05",
     "KPO-OLT-20","KPO-OLT-03","KPO-OLT-17","KPO-OLT-18","BJO-OLT-22",
     "KPO-OLT-01","KPO-OLT-02","KPO-OLT-08","KPO-OLT-12","KPO-OLT-09",
@@ -52,92 +47,85 @@ OLTS = [
 
 BASE_URL = "http://202.77.116.37:28945/ftthbu5/ems_micro.php?olt={}"
 
-DB_FILE = "sent_alarm.json"
+sent = set()
 
-if os.path.exists(DB_FILE):
-    with open(DB_FILE, "r") as f:
-        sent = set(json.load(f))
-else:
-    sent = set()
+def send_telegram(text):
+    try:
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            params={"chat_id": CHAT_ID, "text": text},
+            timeout=10
+        )
+    except:
+        pass
 
 while True:
+    try:
+        print("\nSCAN:", datetime.now())
 
-    print("\n==========", datetime.now(), "==========")
+        for olt_name in OLTS:
+            try:
+                url = BASE_URL.format(olt_name)
 
-    for olt_name in OLTS:
+                r = requests.get(url, timeout=15)
+                soup = BeautifulSoup(r.text, "html.parser")
 
-        try:
-            url = BASE_URL.format(olt_name)
+                rows = soup.find_all("tr")[1:]
 
-            html = requests.get(url, timeout=20).text
-            soup = BeautifulSoup(html, "html.parser")
+                for row in rows:
+                    cols = [td.get_text(strip=True) for td in row.find_all("td")]
 
-            rows = soup.find_all("tr")[1:]
+                    if len(cols) < 8:
+                        continue
 
-            for row in rows:
+                    alarm_id = cols[0]
+                    start = cols[1]
+                    olt = cols[3]
+                    message = cols[4]
+                    ip = cols[5]
+                    severity = cols[6]
+                    ack = cols[7]
 
-                cols = [td.get_text(strip=True) for td in row.find_all("td")]
+                    if alarm_id in sent:
+                        continue
 
-                if len(cols) < 8:
-                    continue
+                    if ack != "Unack":
+                        continue
 
-                alarm_id = cols[0]
-                start = cols[1]
-                olt = cols[3]
-                message = cols[4]
-                ip = cols[5]
-                severity = cols[6]
-                ack = cols[7]
+                    if severity not in ["Major", "Critical"]:
+                        continue
 
-                if alarm_id in sent:
-                    continue
+                    try:
+                        alarm_time = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+                    except:
+                        continue
 
-                if ack != "Unack":
-                    continue
+                    if datetime.now() - alarm_time > timedelta(minutes=15):
+                        sent.add(alarm_id)
+                        continue
 
-                if severity not in ["Major", "Critical"]:
-                    continue
+                    msg = f"""🚨 ALARM OLT
 
-                try:
-                    alarm_time = datetime.strptime(
-                        start,
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                except:
-                    continue
+OLT: {olt}
+Severity: {severity}
+IP: {ip}
 
-                # hanya alarm 15 menit terakhir
-                if datetime.now() - alarm_time > timedelta(minutes=15):
+Message:
+{message}
+
+Start:
+{start}"""
+
+                    send_telegram(msg)
                     sent.add(alarm_id)
-                    continue
 
-                pesan = (
-                    f"🚨 ALARM OLT\n\n"
-                    f"OLT : {olt}\n"
-                    f"Severity : {severity}\n"
-                    f"IP : {ip}\n\n"
-                    f"Message:\n{message}\n\n"
-                    f"Start:\n{start}"
-                )
+                    print("ALERT:", alarm_id)
 
-                r = requests.get(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    params={
-                        "chat_id": CHAT_ID,
-                        "text": pesan
-                    },
-                    timeout=20
-                )
+            except Exception as e:
+                print("OLT ERROR:", olt_name, e)
 
-                print("Kirim:", alarm_id, r.status_code)
+    except Exception as e:
+        print("LOOP ERROR:", e)
 
-                sent.add(alarm_id)
-
-        except Exception as e:
-            print("ERROR", olt_name, e)
-
-    with open(DB_FILE, "w") as f:
-        json.dump(list(sent), f)
-
-    print("Sleep 300 detik...")
+    print("SLEEP 300s")
     time.sleep(300)
